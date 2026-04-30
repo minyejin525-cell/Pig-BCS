@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>돼지 다리 이상 판별 AI</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.21.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8.5/dist/teachablemachine-image.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: sans-serif; background: #f5f5f5; color: #222; padding: 24px 16px; max-width: 520px; margin: 0 auto; }
+    h1 { font-size: 18px; font-weight: 600; margin-bottom: 4px; }
+    .sub { font-size: 13px; color: #666; margin-bottom: 24px; }
+    #status { font-size: 13px; color: #555; margin-bottom: 20px; }
+    .card { background: #fff; border: 1px solid #e0e0e0; border-radius: 12px; padding: 16px; margin-bottom: 12px; }
+    .card-title { font-size: 12px; color: #888; margin-bottom: 8px; }
+    button { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 8px; background: #fff; font-size: 14px; cursor: pointer; }
+    button:hover { background: #f0f0f0; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    #previewImg { width: 100%; max-height: 280px; object-fit: contain; border-radius: 8px; border: 1px solid #e0e0e0; display: none; margin-bottom: 8px; }
+    #camVideo   { width: 100%; max-height: 280px; object-fit: contain; border-radius: 8px; border: 1px solid #e0e0e0; display: none; margin-bottom: 8px; }
+    .bar-wrap { background: #eee; border-radius: 4px; height: 8px; overflow: hidden; margin-top: 6px; }
+    .bar { height: 100%; border-radius: 4px; transition: width 0.4s; }
+    .result-row { display: flex; justify-content: space-between; align-items: center; font-size: 13px; }
+    .verdict { padding: 12px 16px; border-radius: 10px; margin-top: 12px; }
+    .verdict .vt { font-size: 15px; font-weight: 600; }
+    .verdict .vs { font-size: 12px; margin-top: 4px; }
+    .green  { background: #eafaf0; color: #1a7a40; }
+    .red    { background: #fdecea; color: #b71c1c; }
+    .yellow { background: #fff8e1; color: #8a6000; }
+    .blue   { background: #e3f2fd; color: #0d47a1; }
+    canvas { display: none; }
+    .btn-row { display: flex; gap: 8px; }
+    .btn-row button { flex: 1; }
+  </style>
+</head>
+<body>
+  <h1>🐷 돼지 다리 이상 판별 AI</h1>
+  <p class="sub">Google Teachable Machine 기반 이미지 분류</p>
+  <p id="status">모델 불러오는 중...</p>
+
+  <div id="mainArea" style="display:none;">
+    <div class="card">
+      <p class="card-title">사진 업로드</p>
+      <input type="file" id="fileInput" accept="image/*" onchange="handleFile(event)" style="display:none;" />
+      <button onclick="document.getElementById('fileInput').click()">사진 선택</button>
+    </div>
+    <div class="card">
+      <p class="card-title">카메라 촬영 (스마트폰 가능)</p>
+      <button id="camBtn" onclick="toggleCamera()">카메라 시작</button>
+    </div>
+    <div id="previewArea" style="display:none;">
+      <div class="card">
+        <img id="previewImg" alt="미리보기" />
+        <video id="camVideo" autoplay playsinline></video>
+        <div class="btn-row">
+          <button id="analyzeBtn" onclick="analyze()" style="display:none;">판별 시작</button>
+          <button id="captureBtn" onclick="captureCamera()" style="display:none;">촬영 및 판별</button>
+          <button onclick="resetAll()" style="max-width:100px;">초기화</button>
+        </div>
+      </div>
+    </div>
+    <div id="resultArea" style="display:none;">
+      <div class="card">
+        <p class="card-title">판별 결과</p>
+        <div id="resultCards"></div>
+        <div id="verdict" style="display:none;" class="verdict">
+          <div class="vt" id="verdictText"></div>
+          <div class="vs" id="verdictSub"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <canvas id="tmCanvas"></canvas>
+
+  <script>
+    const BASE = 'https://raw.githubusercontent.com/minyejin525-cell/Pig-BCS/main/';
+    let model = null, camStream = null, camActive = false;
+
+    async function init() {
+      try {
+        model = await tmImage.load(BASE + 'model.json', BASE + 'metadata.json');
+        document.getElementById('status').style.color = '#1a7a40';
+        document.getElementById('status').textContent = '✔ 모델 로드 완료! 사진을 업로드하거나 카메라를 사용하세요.';
+        document.getElementById('mainArea').style.display = 'block';
+      } catch(e) {
+        document.getElementById('status').style.color = '#b71c1c';
+        document.getElementById('status').textContent = '모델 로드 실패: ' + e.message;
+      }
+    }
+
+    function handleFile(e) {
+      const file = e.target.files[0]; if (!file) return;
+      stopCamera();
+      const reader = new FileReader();
+      reader.onload = ev => {
+        const img = document.getElementById('previewImg');
+        img.src = ev.target.result; img.style.display = 'block';
+        document.getElementById('camVideo').style.display = 'none';
+        document.getElementById('previewArea').style.display = 'block';
+        document.getElementById('analyzeBtn').style.display = 'block';
+        document.getElementById('captureBtn').style.display = 'none';
+        document.getElementById('resultArea').style.display = 'none';
+      };
+      reader.readAsDataURL(file);
+    }
+
+    async function toggleCamera() {
+      if (camActive) { stopCamera(); return; }
+      try {
+        camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+        const v = document.getElementById('camVideo');
+        v.srcObject = camStream; v.style.display = 'block';
+        document.getElementById('previewImg').style.display = 'none';
+        document.getElementById('previewArea').style.display = 'block';
+        document.getElementById('analyzeBtn').style.display = 'none';
+        document.getElementById('captureBtn').style.display = 'block';
+        document.getElementById('camBtn').textContent = '카메라 끄기';
+        document.getElementById('resultArea').style.display = 'none';
+        camActive = true;
+      } catch(e) { alert('카메라 접근 실패: ' + e.message); }
+    }
+
+    function stopCamera() {
+      if (camStream) { camStream.getTracks().forEach(t => t.stop()); camStream = null; }
+      document.getElementById('camVideo').style.display = 'none';
+      document.getElementById('camBtn').textContent = '카메라 시작';
+      document.getElementById('captureBtn').style.display = 'none';
+      camActive = false;
+    }
+
+    function captureCamera() {
+      const v = document.getElementById('camVideo');
+      const c = document.getElementById('tmCanvas');
+      c.width = v.videoWidth; c.height = v.videoHeight;
+      c.getContext('2d').drawImage(v, 0, 0);
+      const img = document.getElementById('previewImg');
+      img.src = c.toDataURL('image/jpeg'); img.style.display = 'block';
+      v.style.display = 'none'; stopCamera();
+      document.getElementById('analyzeBtn').style.display = 'block';
+      analyze();
+    }
+
+    async function analyze() {
+      if (!model) return;
+      const img = document.getElementById('previewImg');
+      const btn = document.getElementById('analyzeBtn');
+      btn.textContent = '판별 중...'; btn.disabled = true;
+      try {
+        const preds = await model.predict(img);
+        showResults(preds);
+      } catch(e) { alert('판별 실패: ' + e.message); }
+      btn.textContent = '다시 판별'; btn.disabled = false;
+    }
+
+    function showResults(predictions) {
+      const container = document.getElementById('resultCards');
+      container.innerHTML = '';
+      const sorted = [...predictions].sort((a,b) => b.probability - a.probability);
+      const top = sorted[0];
+      sorted.forEach((p, i) => {
+        const pct = Math.round(p.probability * 100);
+        const col = getColor(p.className);
+        const div = document.createElement('div');
+        div.style.marginBottom = '10px';
+        div.innerHTML = `<div class="result-row"><span style="font-weight:${i===0?'600':'400'}">${p.className}</span><span style="font-weight:600;color:${col.text}">${pct}%</span></div><div class="bar-wrap"><div class="bar" style="width:${pct}%;background:${col.bar}"></div></div>`;
+        container.appendChild(div);
+      });
+      const pct = Math.round(top.probability * 100);
+      const lower = top.className.toLowerCase();
+      let cls, text, sub;
+      if (lower.includes('정상')||lower.includes('normal')) { cls='green'; text='✔ 정상 보행으로 판별됨'; sub=`신뢰도 ${pct}% — 특이사항 없음`; }
+      else if (lower.includes('이상')||lower.includes('abnormal')||lower.includes('의심')) { cls='red'; text='⚠ 다리 이상 의심 개체'; sub=`신뢰도 ${pct}% — 즉시 점검 필요`; }
+      else if (lower.includes('확인')||lower.includes('uncertain')||lower.includes('check')) { cls='yellow'; text='▲ 확인 필요'; sub=`신뢰도 ${pct}% — 재촬영 또는 직접 확인 권장`; }
+      else { cls='blue'; text=top.className; sub=`신뢰도 ${pct}%`; }
+      const v = document.getElementById('verdict');
+      v.className = 'verdict ' + cls;
+      document.getElementById('verdictText').textContent = text;
+      document.getElementById('verdictSub').textContent = sub;
+      v.style.display = 'block';
+      document.getElementById('resultArea').style.display = 'block';
+    }
+
+    function getColor(name) {
+      const l = name.toLowerCase();
+      if (l.includes('정상')||l.includes('normal')) return {text:'#1a7a40', bar:'#2ecc71'};
+      if (l.includes('이상')||l.includes('abnormal')||l.includes('의심')) return {text:'#b71c1c', bar:'#e74c3c'};
+      if (l.includes('확인')||l.includes('uncertain')||l.includes('check')) return {text:'#8a6000', bar:'#f39c12'};
+      return {text:'#0d47a1', bar:'#3498db'};
+    }
+
+    function resetAll() {
+      stopCamera();
+      document.getElementById('previewImg').src = '';
+      document.getElementById('previewImg').style.display = 'none';
+      document.getElementById('previewArea').style.display = 'none';
+      document.getElementById('resultArea').style.display = 'none';
+      document.getElementById('fileInput').value = '';
+      document.getElementById('analyzeBtn').style.display = 'none';
+    }
+
+    init();
+  </script>
+</body>
+</html>
