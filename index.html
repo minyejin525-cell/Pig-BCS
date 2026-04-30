@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>돼지 다리 이상 판별 AI</title>
+  <title>돼지 BCS 판별 AI</title>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.21.0/dist/tf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8.5/dist/teachablemachine-image.min.js"></script>
   <style>
@@ -35,8 +35,8 @@
   </style>
 </head>
 <body>
-  <h1>🐷 돼지 다리 이상 판별 AI</h1>
-  <p class="sub">Google Teachable Machine 기반 이미지 분류</p>
+  <h1>🐷 돼지 BCS(체형점수) 판별 AI</h1>
+  <p class="sub">Google Teachable Machine 기반 Body Condition Score 분류</p>
   <p id="status">모델 불러오는 중...</p>
 
   <div id="mainArea" style="display:none;">
@@ -62,7 +62,7 @@
     </div>
     <div id="resultArea" style="display:none;">
       <div class="card">
-        <p class="card-title">판별 결과</p>
+        <p class="card-title">BCS 판별 결과</p>
         <div id="resultCards"></div>
         <div id="verdict" style="display:none;" class="verdict">
           <div class="vt" id="verdictText"></div>
@@ -169,10 +169,15 @@
       const pct = Math.round(top.probability * 100);
       const lower = top.className.toLowerCase();
       let cls, text, sub;
-      if (lower.includes('정상')||lower.includes('normal')) { cls='green'; text='✔ 정상 보행으로 판별됨'; sub=`신뢰도 ${pct}% — 특이사항 없음`; }
-      else if (lower.includes('이상')||lower.includes('abnormal')||lower.includes('의심')) { cls='red'; text='⚠ 다리 이상 의심 개체'; sub=`신뢰도 ${pct}% — 즉시 점검 필요`; }
-      else if (lower.includes('확인')||lower.includes('uncertain')||lower.includes('check')) { cls='yellow'; text='▲ 확인 필요'; sub=`신뢰도 ${pct}% — 재촬영 또는 직접 확인 권장`; }
-      else { cls='blue'; text=top.className; sub=`신뢰도 ${pct}%`; }
+      if (lower.includes('적정') || lower.includes('정상') || lower.includes('normal') || lower.includes('bcs3')) {
+        cls='green'; text='✔ 적정 체형 (BCS 정상)'; sub=`신뢰도 ${pct}% — 현재 체형 양호`;
+      } else if (lower.includes('과비') || lower.includes('비만') || lower.includes('fat') || lower.includes('bcs4') || lower.includes('bcs5')) {
+        cls='red'; text='⚠ 과비 의심 (BCS 높음)'; sub=`신뢰도 ${pct}% — 사료량 조절 검토 필요`;
+      } else if (lower.includes('저비') || lower.includes('마름') || lower.includes('thin') || lower.includes('bcs1') || lower.includes('bcs2')) {
+        cls='yellow'; text='▲ 저비 의심 (BCS 낮음)'; sub=`신뢰도 ${pct}% — 영양 공급 개선 검토 필요`;
+      } else {
+        cls='blue'; text=top.className; sub=`신뢰도 ${pct}%`;
+      }
       const v = document.getElementById('verdict');
       v.className = 'verdict ' + cls;
       document.getElementById('verdictText').textContent = text;
@@ -183,9 +188,9 @@
 
     function getColor(name) {
       const l = name.toLowerCase();
-      if (l.includes('정상')||l.includes('normal')) return {text:'#1a7a40', bar:'#2ecc71'};
-      if (l.includes('이상')||l.includes('abnormal')||l.includes('의심')) return {text:'#b71c1c', bar:'#e74c3c'};
-      if (l.includes('확인')||l.includes('uncertain')||l.includes('check')) return {text:'#8a6000', bar:'#f39c12'};
+      if (l.includes('적정')||l.includes('정상')||l.includes('normal')||l.includes('bcs3')) return {text:'#1a7a40', bar:'#2ecc71'};
+      if (l.includes('과비')||l.includes('비만')||l.includes('fat')||l.includes('bcs4')||l.includes('bcs5')) return {text:'#b71c1c', bar:'#e74c3c'};
+      if (l.includes('저비')||l.includes('마름')||l.includes('thin')||l.includes('bcs1')||l.includes('bcs2')) return {text:'#8a6000', bar:'#f39c12'};
       return {text:'#0d47a1', bar:'#3498db'};
     }
 
